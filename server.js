@@ -8,6 +8,8 @@ const PORT = Number(process.env.PORT) || 8104;
 // collision checks (later issues use idToUrl for redirects and hit counts).
 const urlToId = new Map();
 const idToUrl = new Map();
+// hit counts per served redirect, keyed by id
+const hits = new Map();
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
@@ -88,6 +90,29 @@ function handleShorten(req, res) {
   });
 }
 
+// id-shaped path segments are 6 chars of [a-z0-9]; these names are routes, not ids
+const RESERVED_IDS = new Set(['health', 'shorten', 'codes']);
+
+// match raw req.url against the id shape without URL decoding (decoding could
+// reshape hostile input like %2F into a valid-looking id); returns id or null
+function parseIdPath(rawUrl) {
+  const match = /^\/([a-z0-9]{6})(?:\?.*)?$/.exec(rawUrl);
+  if (!match) return null;
+  if (RESERVED_IDS.has(match[1])) return null;
+  return match[1];
+}
+
+function handleRedirect(req, res, id) {
+  const url = idToUrl.get(id);
+  if (url === undefined) {
+    sendJson(res, 404, { error: 'unknown id' });
+    return;
+  }
+  hits.set(id, (hits.get(id) || 0) + 1);
+  res.writeHead(302, { Location: url });
+  res.end();
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     sendJson(res, 200, { ok: true });
@@ -96,6 +121,13 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/shorten') {
     handleShorten(req, res);
     return;
+  }
+  if (req.method === 'GET') {
+    const id = parseIdPath(req.url);
+    if (id !== null) {
+      handleRedirect(req, res, id);
+      return;
+    }
   }
   sendJson(res, 404, { error: 'not found' });
 });
