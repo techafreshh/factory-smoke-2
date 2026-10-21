@@ -102,6 +102,13 @@ function parseIdPath(rawUrl) {
   return match[1];
 }
 
+// same id shape as parseIdPath, but under the /codes/ stats route; same stance:
+// match raw req.url, no URL decoding, returns id or null
+function parseCodesPath(rawUrl) {
+  const match = /^\/codes\/([a-z0-9]{6})(?:\?.*)?$/.exec(rawUrl);
+  return match ? match[1] : null;
+}
+
 function handleRedirect(req, res, id) {
   const url = idToUrl.get(id);
   if (url === undefined) {
@@ -111,6 +118,16 @@ function handleRedirect(req, res, id) {
   hits.set(id, (hits.get(id) || 0) + 1);
   res.writeHead(302, { Location: url });
   res.end();
+}
+
+// read-only stats: the stored mapping plus lifetime redirect count for one id
+function handleStats(req, res, id) {
+  const url = idToUrl.get(id);
+  if (url === undefined) {
+    sendJson(res, 404, { error: 'unknown id' });
+    return;
+  }
+  sendJson(res, 200, { code: id, url, hits: hits.get(id) || 0 });
 }
 
 const server = http.createServer((req, res) => {
@@ -126,6 +143,11 @@ const server = http.createServer((req, res) => {
     const id = parseIdPath(req.url);
     if (id !== null) {
       handleRedirect(req, res, id);
+      return;
+    }
+    const code = parseCodesPath(req.url);
+    if (code !== null) {
+      handleStats(req, res, code);
       return;
     }
   }
